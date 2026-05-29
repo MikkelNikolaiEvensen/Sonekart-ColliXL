@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sonekart – forslag</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIINfQdXk+rF7yznfUeC4uSLD0gqLKfIT2A=" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <style>
+    :root {
+      --navy: #071B3B;
+      --border: #d6dbe3;
+      --muted: #64748b;
+      --panel: #ffffff;
+      --bg: #f8fafc;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: #0f172a;
+    }
+
+    #app {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      height: 100%;
+    }
+
+    #sidebar {
+      background: white;
+      border-right: 1px solid var(--border);
+      padding: 18px;
+      overflow-y: auto;
+      z-index: 1000;
+      box-shadow: 0 0 20px rgba(15, 23, 42, 0.08);
+    }
+
+    #map {
+      height: 100%;
+      width: 100%;
+      background:
+        radial-gradient(circle at 50% 45%, rgba(255,255,255,0.9), rgba(226,232,240,0.95)),
+        linear-gradient(90deg, rgba(148,163,184,0.14) 1px, transparent 1px),
+        linear-gradient(rgba(148,163,184,0.14) 1px, transparent 1px);
+      background-size: auto, 64px 64px, 64px 64px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 25px;
+      color: var(--navy);
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      margin: 0 0 18px;
+      color: #334155;
+      font-size: 14px;
+    }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 14px;
+      background: #fff;
+    }
+
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 14px;
+      text-transform: uppercase;
+      color: #0f172a;
+      letter-spacing: 0.03em;
+    }
+
+    .zone-row {
+      display: grid;
+      grid-template-columns: 22px 46px 1fr;
+      align-items: center;
+      gap: 10px;
+      margin: 8px 0;
+      font-size: 14px;
+    }
+
+    .zone-pill {
+      color: white;
+      font-weight: 700;
+      border-radius: 5px;
+      text-align: center;
+      padding: 4px 0;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.28);
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .metric {
+      background: #f1f5f9;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 22px;
+      color: var(--navy);
+    }
+
+    .metric span {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .leaflet-popup-content {
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .popup-title {
+      font-weight: 800;
+      color: var(--navy);
+      margin-bottom: 6px;
+      font-size: 16px;
+    }
+
+    button {
+      width: 100%;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-weight: 700;
+      color: var(--navy);
+      cursor: pointer;
+    }
+
+    button:hover { background: #f8fafc; }
+
+    .info {
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 900px) {
+      #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      #sidebar { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <h1>Sonekart – forslag</h1>
+      <p class="subtitle">Interaktivt kart basert på <strong>Forslag sonekart.xlsx</strong></p>
+
+      <div class="panel">
+        <h2>Oppsummering</h2>
+        <div class="summary">
+          <div class="metric"><strong id="zoneCount">–</strong><span>soner</span></div>
+          <div class="metric"><strong id="postcodeCount">–</strong><span>postnummer</span></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Soner</h2>
+        <div id="zoneList"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Visning</h2>
+        <button id="fitBtn">Zoom til alle soner</button>
+        <button id="basemapBtn" style="margin-top:8px;">Vis bakgrunnskart</button>
+      </div>
+
+      <div class="panel info">
+        <strong>Data:</strong><br>
+        GeoJSON: postnummer_sonekart_forslag.geojson<br>
+        CSV: map_export_forslag_sonekart.csv<br><br>
+        Klikk på et postnummerområde for detaljer.
+      </div>
+    </aside>
+
+    <main id="map"></main>
+  </div>
+
+  <script>
+    const map = L.map('map', {
+      zoomControl: true,
+      preferCanvas: true,
+      zoomAnimation: false,
+      fadeAnimation: false,
+      markerZoomAnimation: false,
+      inertia: false
+    }).setView([59.91, 10.75], 8);
+
+    // No raster basemap by default. This removes tile flicker completely.
+    // Use the button in the sidebar if you want to toggle OpenStreetMap on/off.
+    let osmLayer = null;
+
+    function toggleBasemap() {
+      if (osmLayer) {
+        map.removeLayer(osmLayer);
+        osmLayer = null;
+        document.getElementById('basemapBtn').textContent = 'Vis bakgrunnskart';
+      } else {
+        osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap-bidragsytere',
+          maxZoom: 18,
+          minZoom: 5,
+          noWrap: true,
+          keepBuffer: 8,
+          updateWhenIdle: true,
+          updateWhenZooming: false,
+          crossOrigin: true
+        }).addTo(map);
+        osmLayer.bringToBack();
+        document.getElementById('basemapBtn').textContent = 'Skjul bakgrunnskart';
+      }
+    }
+
+    const defaultStyle = {
+      color: '#ffffff',
+      weight: 1,
+      opacity: 0.85,
+      fillOpacity: 0.68,
+      fillColor: '#cbd5e1'
+    };
+
+    const hoverStyle = {
+      weight: 3,
+      color: '#111827',
+      fillOpacity: 0.82
+    };
+
+    let geoLayer;
+    let zoneData = {};
+    let visibleZones = new Set();
+
+    function normalizePostcode(value) {
+      return String(value || '').padStart(4, '0');
+    }
+
+    function styleFeature(feature) {
+      const pc = normalizePostcode(feature.properties.postnummer);
+      const row = zoneData[pc];
+      if (!row || !visibleZones.has(String(row.zone))) {
+        return {
+          ...defaultStyle,
+          fillOpacity: 0.06,
+          fillColor: '#94a3b8',
+          color: '#e2e8f0',
+          weight: 0.6
+        };
+      }
+      return {
+        ...defaultStyle,
+        fillColor: row.color || '#94a3b8'
+      };
+    }
+
+    function popupHtml(feature) {
+      const pc = normalizePostcode(feature.properties.postnummer);
+      const row = zoneData[pc] || {};
+      return `
+        <div class="popup-title">${pc} ${feature.properties.poststed || ''}</div>
+        <div><strong>Sone:</strong> ${row.zone || 'Ikke satt'}</div>
+        <div><strong>Sonenavn:</strong> ${row.zone_name || ''}</div>
+        <div><strong>Kjøredag:</strong> ${row.delivery_days || ''}</div>
+        <div><strong>Depot:</strong> ${row.depot || ''}</div>
+        <div><strong>Kommune:</strong> ${feature.properties.kommune || ''}</div>
+      `;
+    }
+
+    function onEachFeature(feature, layer) {
+      layer.bindPopup(popupHtml(feature));
+
+      layer.on({
+        mouseover: (e) => {
+          e.target.setStyle(hoverStyle);
+          e.target.bringToFront();
+        },
+        mouseout: (e) => {
+          geoLayer.resetStyle(e.target);
+        }
+      });
+    }
+
+    function renderZoneList(rows) {
+      const zoneList = document.getElementById('zoneList');
+      const zones = {};
+
+      rows.forEach(row => {
+        const z = String(row.zone);
+        if (!zones[z]) {
+          zones[z] = {
+            zone: z,
+            name: row.zone_name || `Sone ${z}`,
+            color: row.color || '#94a3b8',
+            count: 0
+          };
+        }
+        zones[z].count += 1;
+      });
+
+      Object.keys(zones).sort((a,b) => Number(a) - Number(b)).forEach(z => {
+        visibleZones.add(z);
+        const item = zones[z];
+
+        const div = document.createElement('label');
+        div.className = 'zone-row';
+        div.innerHTML = `
+          <input type="checkbox" checked data-zone="${z}">
+          <span class="zone-pill" style="background:${item.color}">${z}</span>
+          <span>${item.name} <small style="color:#64748b">(${item.count})</small></span>
+        `;
+        zoneList.appendChild(div);
+      });
+
+      zoneList.addEventListener('change', (event) => {
+        const zone = event.target.dataset.zone;
+        if (!zone) return;
+        if (event.target.checked) visibleZones.add(zone);
+        else visibleZones.delete(zone);
+        if (geoLayer) geoLayer.setStyle(styleFeature);
+      });
+
+      document.getElementById('zoneCount').textContent = Object.keys(zones).length;
+      document.getElementById('postcodeCount').textContent = rows.length;
+    }
+
+    async function init() {
+      const [csvRes, geoRes] = await Promise.all([
+        fetch('map_export_forslag_sonekart.csv'),
+        fetch('postnummer_sonekart_forslag.geojson')
+      ]);
+
+      const csvText = await csvRes.text();
+      const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+      const rows = parsed.data.map(row => ({
+        postcode: normalizePostcode(row.postcode),
+        zone: String(row.zone || ''),
+        zone_name: row.zone_name || '',
+        color: row.color || '#94a3b8',
+        delivery_days: row.delivery_days || '',
+        depot: row.depot || ''
+      }));
+
+      rows.forEach(row => zoneData[row.postcode] = row);
+      renderZoneList(rows);
+
+      const geoJson = await geoRes.json();
+
+      geoLayer = L.geoJSON(geoJson, {
+        style: styleFeature,
+        onEachFeature
+      }).addTo(map);
+
+      map.fitBounds(geoLayer.getBounds(), { padding: [30, 30] });
+
+      document.getElementById('fitBtn').addEventListener('click', () => {
+        map.fitBounds(geoLayer.getBounds(), { padding: [30, 30] });
+      });
+
+      document.getElementById('basemapBtn').addEventListener('click', toggleBasemap);
+    }
+
+    init().catch(error => {
+      console.error(error);
+      alert('Kartet kunne ikke lastes. Sjekk at CSV- og GeoJSON-filene ligger i samme mappe som index.html.');
+    });
+  </script>
+</body>
+</html>
