@@ -225,6 +225,14 @@
         <div id="searchMsg" class="search-msg"></div>
       </div>
 
+      <div class="panel" id="selectedPanel" style="display:none;">
+        <h2>
+          Valgt område
+          <a href="#" id="closeSelected" style="float:right; text-transform:none; letter-spacing:0;">Lukk ✕</a>
+        </h2>
+        <div id="selectedInfo"></div>
+      </div>
+
       <div class="panel">
         <h2>Soner</h2>
         <div id="zoneList"></div>
@@ -321,17 +329,22 @@
       });
     }
 
-    function selectZone(pc) {
+    function selectZone(pc, feature) {
       if (selectedPc && selectedPc !== pc) clearHighlight(selectedPc);
       selectedPc = pc;
       applyHighlight(pc);
+      showSelectedPanel(feature);
     }
 
-    function deselectZone(pc) {
-      if (selectedPc === pc) {
-        clearHighlight(pc);
-        selectedPc = null;
-      }
+    function showSelectedPanel(feature) {
+      document.getElementById('selectedInfo').innerHTML = zoneInfoHtml(feature);
+      document.getElementById('selectedPanel').style.display = 'block';
+    }
+
+    function clearSelection() {
+      if (selectedPc) clearHighlight(selectedPc);
+      selectedPc = null;
+      document.getElementById('selectedPanel').style.display = 'none';
     }
 
     function normalizePostcode(value) {
@@ -356,7 +369,7 @@
       };
     }
 
-    function popupHtml(feature) {
+    function zoneInfoHtml(feature) {
       const pc = normalizePostcode(feature.properties.postnummer);
       const row = zoneData[pc] || {};
       return `
@@ -372,11 +385,6 @@
     function onEachFeature(feature, layer) {
       const pc = normalizePostcode(feature.properties.postnummer);
 
-      layer.bindPopup(popupHtml(feature), {
-        offset: L.point(-170, -6),
-        autoPanPadding: [24, 24]
-      });
-
       (postcodeLayers[pc] = postcodeLayers[pc] || []).push(layer);
 
       layer.on({
@@ -388,8 +396,7 @@
           geoLayer.resetStyle(e.target);
           if (selectedPc === pc) e.target.setStyle(selectedStyle);
         },
-        popupopen: () => selectZone(pc),
-        popupclose: () => deselectZone(pc)
+        click: () => selectZone(pc, feature)
       });
     }
 
@@ -440,7 +447,7 @@
 
       const group = L.featureGroup(layers);
       map.fitBounds(group.getBounds(), { padding: [40, 40], maxZoom: 13 });
-      layers[0].openPopup();
+      selectZone(pc, layers[0].feature);
 
       const row = zoneData[pc] || {};
       msgEl.textContent = row.zone
@@ -540,6 +547,11 @@
 
       document.getElementById('searchInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') searchPostcode(e.target.value);
+      });
+
+      document.getElementById('closeSelected').addEventListener('click', (e) => {
+        e.preventDefault();
+        clearSelection();
       });
     }
 
