@@ -296,11 +296,43 @@
       fillOpacity: 0.82
     };
 
+    const selectedStyle = {
+      weight: 4,
+      color: '#0f172a',
+      opacity: 1,
+      fillOpacity: 0.95
+    };
+
     let geoLayer;
     let zoneData = {};
     let visibleZones = new Set();
     let postcodeLayers = {};
     let zoneLabelMarkers = {};
+    let selectedPc = null;
+
+    function clearHighlight(pc) {
+      (postcodeLayers[pc] || []).forEach(l => geoLayer.resetStyle(l));
+    }
+
+    function applyHighlight(pc) {
+      (postcodeLayers[pc] || []).forEach(l => {
+        l.setStyle(selectedStyle);
+        l.bringToFront();
+      });
+    }
+
+    function selectZone(pc) {
+      if (selectedPc && selectedPc !== pc) clearHighlight(selectedPc);
+      selectedPc = pc;
+      applyHighlight(pc);
+    }
+
+    function deselectZone(pc) {
+      if (selectedPc === pc) {
+        clearHighlight(pc);
+        selectedPc = null;
+      }
+    }
 
     function normalizePostcode(value) {
       return String(value || '').padStart(4, '0');
@@ -338,9 +370,13 @@
     }
 
     function onEachFeature(feature, layer) {
-      layer.bindPopup(popupHtml(feature));
-
       const pc = normalizePostcode(feature.properties.postnummer);
+
+      layer.bindPopup(popupHtml(feature), {
+        offset: L.point(-170, -6),
+        autoPanPadding: [24, 24]
+      });
+
       (postcodeLayers[pc] = postcodeLayers[pc] || []).push(layer);
 
       layer.on({
@@ -350,7 +386,10 @@
         },
         mouseout: (e) => {
           geoLayer.resetStyle(e.target);
-        }
+          if (selectedPc === pc) e.target.setStyle(selectedStyle);
+        },
+        popupopen: () => selectZone(pc),
+        popupclose: () => deselectZone(pc)
       });
     }
 
