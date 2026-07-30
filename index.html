@@ -366,12 +366,14 @@
         osmLayer = null;
         document.getElementById('basemapBtn').textContent = 'Vis bakgrunnskart';
       } else {
-        osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap-bidragsytere',
-          maxZoom: 18,
+        osmLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap-bidragsytere, kart av <a href="https://carto.com/attributions">CARTO</a>',
+          subdomains: 'abcd',
+          maxZoom: 20,
           minZoom: 5,
           noWrap: true,
           keepBuffer: 8,
+          detectRetina: true,
           updateWhenIdle: true,
           updateWhenZooming: false,
           crossOrigin: true
