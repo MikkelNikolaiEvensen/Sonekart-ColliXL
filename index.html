@@ -10,6 +10,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
 
   <style>
     :root {
@@ -401,19 +402,29 @@
     }
 
     function buildZoneLabels() {
-      const zoneLayers = {};
+      const zoneFeatures = {};
       geoLayer.eachLayer(layer => {
         const pc = normalizePostcode(layer.feature.properties.postnummer);
         const row = zoneData[pc];
         if (!row) return;
         const z = String(row.zone);
-        (zoneLayers[z] = zoneLayers[z] || []).push(layer);
+        (zoneFeatures[z] = zoneFeatures[z] || []).push(layer.feature);
       });
 
-      Object.keys(zoneLayers).forEach(z => {
-        const group = L.featureGroup(zoneLayers[z]);
-        const center = group.getBounds().getCenter();
-        const marker = L.marker(center, {
+      Object.keys(zoneFeatures).forEach(z => {
+        const polygons = [];
+        zoneFeatures[z].forEach(f => {
+          if (f.geometry.type === 'Polygon') polygons.push(f.geometry.coordinates);
+          else if (f.geometry.type === 'MultiPolygon') f.geometry.coordinates.forEach(c => polygons.push(c));
+        });
+        if (!polygons.length) return;
+
+        // Use a point guaranteed to lie on the zone's own surface (not just the
+        // bounding-box center), so scattered/disjoint zones don't label into a neighbor.
+        const centerPoint = turf.pointOnFeature(turf.multiPolygon(polygons));
+        const [lng, lat] = centerPoint.geometry.coordinates;
+
+        const marker = L.marker([lat, lng], {
           icon: L.divIcon({
             className: 'zone-label-icon',
             html: `<div class="zone-label">${z}</div>`,
