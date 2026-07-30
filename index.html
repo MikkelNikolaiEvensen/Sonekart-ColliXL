@@ -155,6 +155,46 @@
       line-height: 1.45;
     }
 
+    .search-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .search-row input {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+    }
+
+    .search-row button {
+      width: auto;
+      padding: 10px 14px;
+    }
+
+    .search-msg {
+      margin-top: 10px;
+      font-size: 13px;
+      min-height: 18px;
+    }
+
+    .search-msg.error { color: #b91c1c; }
+    .search-msg.ok { color: #166534; }
+
+    .zone-label {
+      font-weight: 800;
+      font-size: 14px;
+      color: #0f172a;
+      text-align: center;
+      white-space: nowrap;
+      pointer-events: none;
+      text-shadow:
+        0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff,
+        0 0 6px #fff, 0 0 6px #fff;
+    }
+
     @media (max-width: 900px) {
       #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
       #sidebar { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--border); }
@@ -174,6 +214,15 @@
           <div class="metric"><strong id="zoneCount">–</strong><span>soner</span></div>
           <div class="metric"><strong id="postcodeCount">–</strong><span>postnummer</span></div>
         </div>
+      </div>
+
+      <div class="panel">
+        <h2>Søk postnummer</h2>
+        <div class="search-row">
+          <input id="searchInput" type="text" inputmode="numeric" maxlength="4" placeholder="f.eks. 0150" />
+          <button id="searchBtn">Søk</button>
+        </div>
+        <div id="searchMsg" class="search-msg"></div>
       </div>
 
       <div class="panel">
@@ -250,6 +299,8 @@
     let geoLayer;
     let zoneData = {};
     let visibleZones = new Set();
+    let postcodeLayers = {};
+    let zoneLabelMarkers = {};
 
     function normalizePostcode(value) {
       return String(value || '').padStart(4, '0');
@@ -289,6 +340,9 @@
     function onEachFeature(feature, layer) {
       layer.bindPopup(popupHtml(feature));
 
+      const pc = normalizePostcode(feature.properties.postnummer);
+      (postcodeLayers[pc] = postcodeLayers[pc] || []).push(layer);
+
       layer.on({
         mouseover: (e) => {
           e.target.setStyle(hoverStyle);
@@ -298,6 +352,62 @@
           geoLayer.resetStyle(e.target);
         }
       });
+    }
+
+    function buildZoneLabels() {
+      const zoneLayers = {};
+      geoLayer.eachLayer(layer => {
+        const pc = normalizePostcode(layer.feature.properties.postnummer);
+        const row = zoneData[pc];
+        if (!row) return;
+        const z = String(row.zone);
+        (zoneLayers[z] = zoneLayers[z] || []).push(layer);
+      });
+
+      Object.keys(zoneLayers).forEach(z => {
+        const group = L.featureGroup(zoneLayers[z]);
+        const center = group.getBounds().getCenter();
+        const marker = L.marker(center, {
+          icon: L.divIcon({
+            className: 'zone-label-icon',
+            html: `<div class="zone-label">${z}</div>`,
+            iconSize: [40, 20],
+            iconAnchor: [20, 10]
+          }),
+          interactive: false,
+          keyboard: false
+        });
+        zoneLabelMarkers[z] = marker;
+        if (visibleZones.has(z)) marker.addTo(map);
+      });
+    }
+
+    function searchPostcode(rawValue) {
+      const msgEl = document.getElementById('searchMsg');
+      const pc = normalizePostcode(rawValue);
+
+      if (!rawValue || !rawValue.trim()) {
+        msgEl.textContent = '';
+        msgEl.className = 'search-msg';
+        return;
+      }
+
+      const layers = postcodeLayers[pc];
+      if (!layers || !layers.length) {
+        msgEl.textContent = `Fant ikke postnummer ${pc}.`;
+        msgEl.className = 'search-msg error';
+        return;
+      }
+
+      const group = L.featureGroup(layers);
+      map.fitBounds(group.getBounds(), { padding: [40, 40], maxZoom: 13 });
+      layers[0].openPopup();
+
+      const row = zoneData[pc] || {};
+      msgEl.textContent = row.zone
+        ? `${pc}: sone ${row.zone}${row.zone_name ? ' – ' + row.zone_name : ''}`
+        : `${pc} funnet (ingen sone satt).`;
+      msgEl.className = 'search-msg ok';
     }
 
     function renderZoneList(rows) {
@@ -337,6 +447,12 @@
         if (event.target.checked) visibleZones.add(zone);
         else visibleZones.delete(zone);
         if (geoLayer) geoLayer.setStyle(styleFeature);
+
+        const label = zoneLabelMarkers[zone];
+        if (label) {
+          if (event.target.checked) label.addTo(map);
+          else map.removeLayer(label);
+        }
       });
 
       document.getElementById('zoneCount').textContent = Object.keys(zones).length;
@@ -371,12 +487,21 @@
       }).addTo(map);
 
       map.fitBounds(geoLayer.getBounds(), { padding: [30, 30] });
+      buildZoneLabels();
 
       document.getElementById('fitBtn').addEventListener('click', () => {
         map.fitBounds(geoLayer.getBounds(), { padding: [30, 30] });
       });
 
       document.getElementById('basemapBtn').addEventListener('click', toggleBasemap);
+
+      document.getElementById('searchBtn').addEventListener('click', () => {
+        searchPostcode(document.getElementById('searchInput').value);
+      });
+
+      document.getElementById('searchInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') searchPostcode(e.target.value);
+      });
     }
 
     init().catch(error => {
