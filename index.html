@@ -356,12 +356,6 @@
       inertia: false
     }).setView([59.91, 10.75], 8);
 
-    // The map sits in a CSS grid column; Leaflet can cache a stale container
-    // size from before the grid layout settles, which starves tile layers of
-    // coverage for part of the viewport (vector layers self-correct on every
-    // redraw, so only raster tiles show the gap). Recompute on any real resize.
-    new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById('map'));
-
     // No raster basemap by default. This removes tile flicker completely.
     // Use the button in the sidebar if you want to toggle OpenStreetMap on/off.
     let osmLayer = null;
