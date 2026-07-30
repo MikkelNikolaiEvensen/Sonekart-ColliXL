@@ -183,6 +183,51 @@
     .search-msg.error { color: #b91c1c; }
     .search-msg.ok { color: #166534; }
 
+    details > summary {
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #0f172a;
+      letter-spacing: 0.03em;
+      list-style: none;
+    }
+
+    details > summary::-webkit-details-marker { display: none; }
+    details > summary::before { content: '▸ '; }
+    details[open] > summary::before { content: '▾ '; }
+
+    .calc-body {
+      margin-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .calc-body label {
+      font-size: 13px;
+      color: #334155;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .calc-body select,
+    .calc-body input {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    .calc-result {
+      margin-top: 4px;
+      font-size: 14px;
+      min-height: 18px;
+      line-height: 1.5;
+    }
+
     @media (max-width: 900px) {
       #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
       #sidebar { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--border); }
@@ -211,6 +256,33 @@
           <button id="searchBtn">Søk</button>
         </div>
         <div id="searchMsg" class="search-msg"></div>
+      </div>
+
+      <div class="panel">
+        <details id="priceCalc">
+          <summary>Priskalkulator</summary>
+          <div class="calc-body">
+            <label>Avsender/kunde
+              <select id="calcCustomer">
+                <option value="amo">A-Møbler</option>
+              </select>
+            </label>
+            <label>Fra postnummer
+              <input id="calcFra" type="text" inputmode="numeric" maxlength="4" placeholder="f.eks. 0150" />
+            </label>
+            <label>Til postnummer
+              <input id="calcTil" type="text" inputmode="numeric" maxlength="4" placeholder="f.eks. 3475" />
+            </label>
+            <label>Tjeneste
+              <select id="calcTjeneste"></select>
+            </label>
+            <label>Kubikk
+              <select id="calcKubikk"></select>
+            </label>
+            <button id="calcBtn">Beregn pris</button>
+            <div id="calcResult" class="calc-result"></div>
+          </div>
+        </details>
       </div>
 
       <div class="panel" id="selectedPanel" style="display:none;">
@@ -304,6 +376,7 @@
     let visibleZones = new Set();
     let postcodeLayers = {};
     let selectedPc = null;
+    let priceData = null;
 
     function clearHighlight(pc) {
       (postcodeLayers[pc] || []).forEach(l => geoLayer.resetStyle(l));
@@ -415,6 +488,59 @@
       msgEl.className = 'search-msg ok';
     }
 
+    function populatePriceCalcOptions() {
+      const tjenesteSelect = document.getElementById('calcTjeneste');
+      Object.keys(priceData.services).forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        tjenesteSelect.appendChild(opt);
+      });
+
+      const firstService = priceData.services[Object.keys(priceData.services)[0]];
+      const kubikkSelect = document.getElementById('calcKubikk');
+      firstService.forEach((tierEntry, idx) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = tierEntry.tier;
+        kubikkSelect.appendChild(opt);
+      });
+    }
+
+    function calculatePrice() {
+      const resultEl = document.getElementById('calcResult');
+      const fra = normalizePostcode(document.getElementById('calcFra').value);
+      const til = normalizePostcode(document.getElementById('calcTil').value);
+      const tjeneste = document.getElementById('calcTjeneste').value;
+      const tierIdx = Number(document.getElementById('calcKubikk').value);
+
+      const fraRow = zoneData[fra];
+      const tilRow = zoneData[til];
+
+      if (!fraRow || !tilRow) {
+        const missing = !fraRow ? `FRA-postnummer ${fra}` : `TIL-postnummer ${til}`;
+        resultEl.textContent = `Fant ikke sone for ${missing}.`;
+        resultEl.className = 'calc-result search-msg error';
+        return;
+      }
+
+      const fraZone = Number(fraRow.zone);
+      const tilZone = Number(tilRow.zone);
+      const service = priceData.services[tjeneste];
+      const tier = service && service[tierIdx];
+
+      if (!fraZone || !tilZone || !tier) {
+        resultEl.textContent = 'Fant ikke pris for denne kombinasjonen.';
+        resultEl.className = 'calc-result search-msg error';
+        return;
+      }
+
+      const price = tier.matrix[fraZone - 1][tilZone - 1];
+      resultEl.innerHTML = `<strong>${price.toLocaleString('no-NO')} kr</strong><br>` +
+        `${fra} (sone ${fraZone}) → ${til} (sone ${tilZone}) · ${tjeneste} · ${tier.tier}`;
+      resultEl.className = 'calc-result search-msg ok';
+    }
+
     function renderZoneList(rows) {
       const zoneList = document.getElementById('zoneList');
       const zones = {};
@@ -459,10 +585,14 @@
     }
 
     async function init() {
-      const [csvRes, geoRes] = await Promise.all([
+      const [csvRes, geoRes, priceRes] = await Promise.all([
         fetch('map_export_forslag_sonekart.csv'),
-        fetch('postnummer_sonekart_forslag.geojson')
+        fetch('postnummer_sonekart_forslag.geojson'),
+        fetch('priser_amo.json')
       ]);
+
+      priceData = await priceRes.json();
+      populatePriceCalcOptions();
 
       const csvText = await csvRes.text();
       const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
@@ -504,6 +634,14 @@
       document.getElementById('closeSelected').addEventListener('click', (e) => {
         e.preventDefault();
         clearSelection();
+      });
+
+      document.getElementById('calcBtn').addEventListener('click', calculatePrice);
+
+      ['calcFra', 'calcTil'].forEach(id => {
+        document.getElementById(id).addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') calculatePrice();
+        });
       });
     }
 
