@@ -206,22 +206,7 @@
     .search-msg.error { color: #f87171; }
     .search-msg.ok { color: #4ade80; }
 
-    details > summary {
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 700;
-      text-transform: uppercase;
-      color: var(--brand-light);
-      letter-spacing: 0.03em;
-      list-style: none;
-    }
-
-    details > summary::-webkit-details-marker { display: none; }
-    details > summary::before { content: '▸ '; }
-    details[open] > summary::before { content: '▾ '; }
-
     .calc-body {
-      margin-top: 14px;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -255,6 +240,63 @@
       line-height: 1.5;
     }
 
+    .field-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .field-row label {
+      font-size: 13px;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .field-row select {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 14px;
+      font-family: inherit;
+      background: #1c2229;
+      color: #e5e7eb;
+    }
+
+    .kjoredag-actions {
+      margin-top: 10px;
+    }
+
+    .kjoredag-actions button {
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+
+    .kd-list {
+      margin: 6px 0 0;
+      padding: 0;
+      list-style: none;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .kd-list li { margin: 2px 0; }
+
+    .kd-day {
+      display: inline-block;
+      min-width: 74px;
+      font-weight: 700;
+      color: #e5e7eb;
+    }
+
+    .kd-slots { color: var(--muted); }
+
+    .kd-empty { color: #f87171; }
+
     @media (max-width: 900px) {
       #app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
       #sidebar { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--border); }
@@ -287,12 +329,41 @@
           <button id="searchBtn">Søk</button>
         </div>
         <div id="searchMsg" class="search-msg"></div>
+        <div id="searchKjoredag" class="kd-list-wrap"></div>
       </div>
 
       <div class="panel">
-        <details id="priceCalc">
-          <summary>Priskalkulator</summary>
-          <div class="calc-body">
+        <h2>Søk kjøredag</h2>
+        <div class="field-row">
+          <label>Ukedag
+            <select id="kdDay">
+              <option value="">Alle dager</option>
+              <option value="1">Mandag</option>
+              <option value="2">Tirsdag</option>
+              <option value="3">Onsdag</option>
+              <option value="4">Torsdag</option>
+              <option value="5">Fredag</option>
+              <option value="6">Lørdag</option>
+            </select>
+          </label>
+          <label>Tidsrom
+            <select id="kdSlot">
+              <option value="">Alle tidsrom</option>
+              <option value="e">Formiddag</option>
+              <option value="d">Dagtid</option>
+              <option value="l">Ettermiddag</option>
+            </select>
+          </label>
+        </div>
+        <div class="kjoredag-actions">
+          <button id="kdReset">Nullstill filter</button>
+        </div>
+        <div id="kdMsg" class="search-msg"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Priskalkulator</h2>
+        <div class="calc-body">
             <label>Avsender/kunde
               <select id="calcCustomer">
                 <option value="amo">A-Møbler</option>
@@ -312,8 +383,7 @@
             </label>
             <button id="calcBtn">Beregn pris</button>
             <div id="calcResult" class="calc-result"></div>
-          </div>
-        </details>
+        </div>
       </div>
 
       <div class="panel" id="selectedPanel" style="display:none;">
@@ -338,7 +408,12 @@
       <div class="panel info">
         <strong>Data:</strong><br>
         GeoJSON: postnummer_sonekart_forslag.geojson<br>
-        CSV: map_export_forslag_sonekart.csv<br><br>
+        CSV: map_export_forslag_sonekart.csv<br>
+        Priser: priser_amo.json<br>
+        Kjøredager: kjoredager.json<br><br>
+        Kjøredag er hentet fra ColliXL 06.08.2026 med opphenting i Oslo
+        (Alnabru), og er verifisert konstant innenfor hver sone for alle
+        1032 postnummer.<br><br>
         Klikk på et postnummerområde for detaljer.
       </div>
     </aside>
@@ -410,6 +485,89 @@
     let postcodeLayers = {};
     let selectedPc = null;
     let priceData = null;
+    let kjoredagData = null;
+    let kdFilter = { day: '', slot: '' };
+
+    // ---- Kjøredag -------------------------------------------------------
+    // Kjøredag er hentet fra ColliXL og er konstant innenfor hver sone,
+    // verifisert mot alle 1032 postnummer. Oppslaget skjer derfor på sone.
+    function kjoredagForZone(zone) {
+      if (!kjoredagData) return null;
+      return kjoredagData.soner[String(zone)] || null;
+    }
+
+    function slotLabel(code) {
+      const t = kjoredagData && kjoredagData.tidsrom[code];
+      return t ? `${t.navn} ${t.fra}–${t.til}` : code;
+    }
+
+    function dayLabel(day) {
+      return (kjoredagData && kjoredagData.ukedager[String(day)]) || `Dag ${day}`;
+    }
+
+    function kjoredagHtml(zone) {
+      const entries = kjoredagForZone(zone);
+      if (!entries || !entries.length) {
+        return '<div class="kd-empty">Ingen kjøredager registrert.</div>';
+      }
+      const items = entries.map(e =>
+        `<li><span class="kd-day">${dayLabel(e.dag)}</span>` +
+        `<span class="kd-slots">${e.tid.map(slotLabel).join(' · ')}</span></li>`
+      ).join('');
+      return `<ul class="kd-list">${items}</ul>`;
+    }
+
+    function matchesKdFilter(zone) {
+      if (!kdFilter.day && !kdFilter.slot) return true;
+      const entries = kjoredagForZone(zone);
+      if (!entries) return false;
+      return entries.some(e => {
+        if (kdFilter.day && String(e.dag) !== kdFilter.day) return false;
+        if (kdFilter.slot && !e.tid.includes(kdFilter.slot)) return false;
+        return true;
+      });
+    }
+
+    function applyKdFilter() {
+      kdFilter.day = document.getElementById('kdDay').value;
+      kdFilter.slot = document.getElementById('kdSlot').value;
+
+      const msgEl = document.getElementById('kdMsg');
+      if (geoLayer) geoLayer.setStyle(styleFeature);
+      if (selectedPc) applyHighlight(selectedPc);
+
+      if (!kdFilter.day && !kdFilter.slot) {
+        msgEl.textContent = '';
+        msgEl.className = 'search-msg';
+        return;
+      }
+
+      const zones = new Set();
+      let postcodes = 0;
+      Object.values(zoneData).forEach(row => {
+        if (row.zone && matchesKdFilter(row.zone)) {
+          zones.add(String(row.zone));
+          postcodes += 1;
+        }
+      });
+
+      const parts = [];
+      if (kdFilter.day) parts.push(dayLabel(kdFilter.day).toLowerCase());
+      if (kdFilter.slot) parts.push(slotLabel(kdFilter.slot).toLowerCase());
+      const what = parts.join(', ');
+
+      if (!postcodes) {
+        msgEl.textContent = `Ingen soner kjøres ${what}.`;
+        msgEl.className = 'search-msg error';
+        return;
+      }
+
+      const zoneNums = [...zones].map(Number).sort((a, b) => a - b);
+      msgEl.innerHTML = `Kjøres ${what}: <strong>${zoneNums.length} soner</strong>, ` +
+        `<strong>${postcodes} postnummer</strong><br>` +
+        `<span style="color:#94a3b8">Sone ${zoneNums.join(', ')}</span>`;
+      msgEl.className = 'search-msg ok';
+    }
 
     function clearHighlight(pc) {
       (postcodeLayers[pc] || []).forEach(l => geoLayer.resetStyle(l));
@@ -447,7 +605,7 @@
     function styleFeature(feature) {
       const pc = normalizePostcode(feature.properties.postnummer);
       const row = zoneData[pc];
-      if (!row || !visibleZones.has(String(row.zone))) {
+      if (!row || !visibleZones.has(String(row.zone)) || !matchesKdFilter(row.zone)) {
         return {
           ...defaultStyle,
           fillOpacity: 0.06,
@@ -469,9 +627,9 @@
         <div class="popup-title">${pc} ${feature.properties.poststed || ''}</div>
         <div><strong>Sone:</strong> ${row.zone || 'Ikke satt'}</div>
         <div><strong>Sonenavn:</strong> ${row.zone_name || ''}</div>
-        <div><strong>Kjøredag:</strong> ${row.delivery_days || ''}</div>
-        <div><strong>Depot:</strong> ${row.depot || ''}</div>
         <div><strong>Kommune:</strong> ${feature.properties.kommune || ''}</div>
+        <div style="margin-top:8px"><strong>Kjøredag:</strong></div>
+        ${kjoredagHtml(row.zone)}
       `;
     }
 
@@ -495,11 +653,13 @@
 
     function searchPostcode(rawValue) {
       const msgEl = document.getElementById('searchMsg');
+      const kdEl = document.getElementById('searchKjoredag');
       const pc = normalizePostcode(rawValue);
 
       if (!rawValue || !rawValue.trim()) {
         msgEl.textContent = '';
         msgEl.className = 'search-msg';
+        kdEl.innerHTML = '';
         return;
       }
 
@@ -507,6 +667,7 @@
       if (!layers || !layers.length) {
         msgEl.textContent = `Fant ikke postnummer ${pc}.`;
         msgEl.className = 'search-msg error';
+        kdEl.innerHTML = '';
         return;
       }
 
@@ -519,6 +680,10 @@
         ? `${pc}: sone ${row.zone}${row.zone_name ? ' – ' + row.zone_name : ''}`
         : `${pc} funnet (ingen sone satt).`;
       msgEl.className = 'search-msg ok';
+
+      kdEl.innerHTML = row.zone
+        ? `<div style="margin-top:8px;font-size:13px;color:var(--brand-light);font-weight:700">Kjøredag</div>${kjoredagHtml(row.zone)}`
+        : '';
     }
 
     function populatePriceCalcOptions() {
@@ -570,7 +735,9 @@
 
       const price = tier.matrix[fraZone - 1][tilZone - 1];
       resultEl.innerHTML = `<strong>${price.toLocaleString('no-NO')} kr</strong><br>` +
-        `${fra} (sone ${fraZone}) → ${til} (sone ${tilZone}) · ${tjeneste} · ${tier.tier}`;
+        `${fra} (sone ${fraZone}) → ${til} (sone ${tilZone}) · ${tjeneste} · ${tier.tier}` +
+        `<div style="margin-top:8px;color:#94a3b8">Kjøredag til ${til}:</div>` +
+        kjoredagHtml(tilZone);
       resultEl.className = 'calc-result search-msg ok';
     }
 
@@ -618,13 +785,15 @@
     }
 
     async function init() {
-      const [csvRes, geoRes, priceRes] = await Promise.all([
+      const [csvRes, geoRes, priceRes, kdRes] = await Promise.all([
         fetch('map_export_forslag_sonekart.csv'),
         fetch('postnummer_sonekart_forslag.geojson'),
-        fetch('priser_amo.json')
+        fetch('priser_amo.json'),
+        fetch('kjoredager.json')
       ]);
 
       priceData = await priceRes.json();
+      kjoredagData = await kdRes.json();
       populatePriceCalcOptions();
 
       const csvText = await csvRes.text();
@@ -667,6 +836,15 @@
       document.getElementById('closeSelected').addEventListener('click', (e) => {
         e.preventDefault();
         clearSelection();
+      });
+
+      document.getElementById('kdDay').addEventListener('change', applyKdFilter);
+      document.getElementById('kdSlot').addEventListener('change', applyKdFilter);
+
+      document.getElementById('kdReset').addEventListener('click', () => {
+        document.getElementById('kdDay').value = '';
+        document.getElementById('kdSlot').value = '';
+        applyKdFilter();
       });
 
       document.getElementById('calcBtn').addEventListener('click', calculatePrice);
